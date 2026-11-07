@@ -1,0 +1,5 @@
+ReSpotifuck 1.0.10 (versionCode 9) release APK
+Package: com.respotfck.spotifck
+Signer DN: CN=Spotifck Release, OU=Android, O=ReSpotF-ck, C=US
+Signer SHA-256: 61:4F:94:C2:B9:58:A6:58:D1:9C:8B:9D:FA:70:1A:63:2D:B0:86:3A:D8:85:A6:31:01:2A:E9:17:11:1C:A9:56
+Same key as every earlier release, so it installs as an update.
