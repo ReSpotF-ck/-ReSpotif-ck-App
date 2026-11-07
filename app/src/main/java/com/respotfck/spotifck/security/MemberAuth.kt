@@ -54,7 +54,7 @@ object MemberAuth {
         return when (code) {
             200 -> if (save(body)) LoginResult.Ok else LoginResult.Offline
             401 -> LoginResult.Invalid
-            503 -> LoginResult.NotSetUp
+            404, 503 -> LoginResult.NotSetUp
             else -> LoginResult.Offline
         }
     }
