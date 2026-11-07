@@ -272,7 +272,7 @@ fun PinPromptDialog(onSetPin: () -> Unit, onSkip: () -> Unit, onNo: () -> Unit) 
         icon = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
         title = { Text("Protect ReSpotifuck with a PIN?", fontWeight = FontWeight.Bold) },
         text = {
-            Text("A PIN keeps others from opening the app and your Spotify account on this phone. You can change this later in Settings › Privacy & Lock.")
+            Text("A PIN keeps others from opening the app and your Spotify account on this phone. You can change this later in Settings › Privacy & Lock.\n\nWe don't exist, and we'd like to keep it that way. Keep this app private and only share it with people you trust.")
         },
         confirmButton = { TextButton(onClick = onSetPin) { Text("Set PIN", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) } },
         dismissButton = {

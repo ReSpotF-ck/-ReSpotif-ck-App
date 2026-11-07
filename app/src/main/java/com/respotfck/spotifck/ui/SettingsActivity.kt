@@ -1083,6 +1083,14 @@ fun SettingsScreen(
                 icon = Icons.Default.Info
             ) {
                 SettingTile(
+                    title = "We don't exist",
+                    subtitle = "And we'd like to keep it that way. Please keep discussions private and only share ReSpotifuck with people you trust.",
+                    icon = Icons.Default.VisibilityOff
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingTile(
                     title = "GitHub Repository",
                     subtitle = "github.com/ReSpotF-ck/-ReSpotif-ck-App",
                     painter = painterResource(id = R.drawable.ic_github),
@@ -2076,7 +2084,7 @@ private fun CompareDialog(onOpen: (String) -> Unit, onDismiss: () -> Unit) {
                     }
                 }
                 Text(
-                    "Tap a card to open its project page. ReSpotifuck is not affiliated with Spotify.",
+                    "Tap a card to open its project page. ReSpotifuck is not affiliated with Spotify. We don't exist; please keep it that way and only share with people you trust.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -124,6 +124,13 @@ fun LaunchSplash(status: String?, modifier: Modifier = Modifier) {
                 fontSize = 13.sp,
                 letterSpacing = 1.5.sp
             )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "We don't exist.",
+                color = Color.White.copy(alpha = 0.35f * wordmark.value),
+                fontSize = 11.sp,
+                letterSpacing = 1.sp
+            )
         }
     }
 }

@@ -24,6 +24,7 @@ private val guideSteps = listOf(
     "Proxy & secure DNS" to "These stay on. The proxy filters ads and the secure DNS (AdGuard) blocks trackers. If a red banner says they're off, tap Turn on.",
     "PIN & privacy" to "You can set a PIN so nobody else can open the app. Screenshots are blocked unless you allow them in Settings.",
     "Make it yours" to "Settings › Appearance has themes, app icons and names. Settings › Tweaks can hide podcasts, upsells and Canvas videos.",
+    "Keep it private" to "We don't exist, and we'd like to keep it that way. Please keep discussions about ReSpotifuck private and only share it with people you trust. Don't post download links publicly.",
     "If something breaks" to "Settings › System › Empty Cache fixes most loading problems. If the player keeps failing, the app switches to a backup web engine by itself. Settings › About has links to get help."
 )
 
