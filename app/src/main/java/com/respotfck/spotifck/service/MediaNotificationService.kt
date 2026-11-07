@@ -115,7 +115,11 @@ class MediaNotificationService : Service() {
         registerReceivers()
         registerDisconnectReceivers()
         try {
-            startForeground(NOTIFICATION_ID, buildNotification(), getStartForegroundServiceType())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, buildNotification(), getStartForegroundServiceType())
+            } else {
+                startForeground(NOTIFICATION_ID, buildNotification())
+            }
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Failed to start foreground", e)
             stopSelf()

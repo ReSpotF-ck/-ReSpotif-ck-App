@@ -27,7 +27,7 @@ android {
 
     defaultConfig {
         applicationId = "com.respotfck.spotifck"
-        minSdk = 28
+        minSdk = 26
         targetSdk = 36
         versionCode = 7
         versionName = "1.0.8"

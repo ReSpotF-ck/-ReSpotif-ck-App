@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Web
+import androidx.compose.material.icons.filled.Gavel
 import com.respotfck.spotifck.webview.WebEngine
 import android.content.Context
 import android.content.Intent
@@ -1184,6 +1185,19 @@ fun SettingsScreen(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
 
+                var showRules by remember { mutableStateOf(false) }
+                SettingTile(
+                    title = "Rules",
+                    subtitle = "The rules for using ReSpotifuck",
+                    icon = Icons.Default.Gavel,
+                    onClick = { showRules = true }
+                )
+                if (showRules) {
+                    RulesDialog(onDismiss = { showRules = false })
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
                 var showCompare by remember { mutableStateOf(false) }
                 SettingTile(
                     title = "Compare with Spotilol & Spotifuck",
@@ -2050,6 +2064,42 @@ private val compareApps = listOf(
         )
     )
 )
+
+private val appRules = listOf(
+    "We don't exist. Keep it that way.",
+    "Don't post download links, the website or the repos publicly. Share only with people you trust.",
+    "Don't sell, re-upload or rebrand the app as your own.",
+    "Only download from respotfck.netlify.app or the official GitHub. Never trust APKs from anywhere else.",
+    "Don't use it to harm or harass anyone, or to break the law where you live.",
+    "Use your own Spotify account. No sharing accounts or reselling access.",
+    "Report bugs privately to the maintainer, not in public Spotify forums.",
+    "It's provided as is. You use it at your own risk."
+)
+
+@Composable
+private fun RulesDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Gavel, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("Rules", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                appRules.forEachIndexed { i, rule ->
+                    Text("${i + 1}. $rule", style = MaterialTheme.typography.bodyMedium)
+                }
+                Text(
+                    "By using ReSpotifuck you agree to these rules.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Got it") } }
+    )
+}
 
 @Composable
 private fun CompareDialog(onOpen: (String) -> Unit, onDismiss: () -> Unit) {
