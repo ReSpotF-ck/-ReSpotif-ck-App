@@ -28,6 +28,8 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
 import com.respotfck.spotifck.security.AppLock
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -451,9 +453,11 @@ class MainActivity : ComponentActivity() {
                         getSharedPreferences("spotilol_prefs", MODE_PRIVATE).edit().putBoolean("GuideShown", true).apply()
                     })
                 }
+                MemberGateOverlay()
                 AppLockOverlay()
             }
         }
+        lifecycleScope.launch { com.respotfck.spotifck.security.MemberAuth.refresh() }
     }
 
     private fun startSleepTimer(minutes: Int) {

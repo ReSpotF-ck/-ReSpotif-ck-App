@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Web
 import androidx.compose.material.icons.filled.Gavel
+import androidx.compose.material.icons.filled.Key
 import com.respotfck.spotifck.webview.WebEngine
 import android.content.Context
 import android.content.Intent
@@ -188,6 +189,7 @@ class SettingsActivity : ComponentActivity() {
                     onClearCache = { clearWebViewCache() },
                     onClearData = { clearAllData() }
                 )
+                MemberGateOverlay()
                 AppLockOverlay()
             }
         }
@@ -1083,6 +1085,16 @@ fun SettingsScreen(
                 title = "ABOUT",
                 icon = Icons.Default.Info
             ) {
+                val member = com.respotfck.spotifck.security.MemberAuth.memberName.value
+                SettingTile(
+                    title = "Member: ${member ?: "not signed in"}",
+                    subtitle = "Tap to log out of your member code on this phone",
+                    icon = Icons.Default.Key,
+                    onClick = { com.respotfck.spotifck.security.MemberAuth.signOut() }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
                 SettingTile(
                     title = "We don't exist",
                     subtitle = "And we'd like to keep it that way. Please keep discussions private and only share ReSpotifuck with people you trust.",
