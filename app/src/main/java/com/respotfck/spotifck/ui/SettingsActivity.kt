@@ -1,5 +1,13 @@
 package com.respotfck.spotifck.ui
 
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Web
+import androidx.compose.material.icons.filled.Gavel
+import com.respotfck.spotifck.webview.WebEngine
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -9,6 +17,30 @@ import android.webkit.CookieManager
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.widget.Toast
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.DataSaverOn
+import androidx.compose.material.icons.filled.ShuffleOn
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Podcasts
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Apps
+import com.respotfck.spotifck.webview.TweakPrefs
+import com.respotfck.spotifck.SettingsBackup
+import com.respotfck.spotifck.AppIdentity
+import androidx.compose.foundation.Image
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.draw.alpha
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.respotfck.spotifck.security.AppLock
@@ -44,6 +76,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Compare
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Screenshot
 import androidx.compose.material.icons.filled.Password
@@ -83,6 +116,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.SettingsEthernet
+import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.SettingsBackupRestore
+import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -104,7 +150,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.webkit.WebViewCompat
+import com.respotfck.spotifck.proxy.DnsBlockedException
+import com.respotfck.spotifck.proxy.DnsSettings
+import com.respotfck.spotifck.proxy.DohResolver
 import com.respotfck.spotifck.proxy.LocalProxyManager
+import com.respotfck.spotifck.proxy.ProxySettings
 import com.respotfck.spotifck.update.UpdateChecker
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -184,6 +234,183 @@ fun SettingsScreen(
     onClearCache: () -> Unit,
     onClearData: () -> Unit
 ) {
+    val appCtx = LocalContext.current
+    var pendingSensitive by remember { mutableStateOf<Triple<String, String, () -> Unit>?>(null) }
+    fun confirmSensitive(title: String, message: String, action: () -> Unit) { pendingSensitive = Triple(title, message, action) }
+    pendingSensitive?.let { (title, message, action) ->
+        AlertDialog(
+            onDismissRequest = { pendingSensitive = null },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text(title, fontWeight = FontWeight.Bold) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingSensitive = null
+                    action()
+                }) { Text("Continue", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { pendingSensitive = null }) { Text("Cancel") } }
+        )
+    }
+    var showIconDialog by remember { mutableStateOf(false) }
+    var showStartPageDialog by remember { mutableStateOf(false) }
+    var showEngineDialog by remember { mutableStateOf(false) }
+    var engineChoice by remember { mutableStateOf(WebEngine.preferred(prefs)) }
+    var engineAuto by remember { mutableStateOf(WebEngine.autoFallback(prefs)) }
+    if (showEngineDialog) {
+        AlertDialog(
+            onDismissRequest = { showEngineDialog = false },
+            title = { Text("Web engine", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    WebEngine.engines.forEach { e ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                val apply = {
+                                    engineChoice = e.id
+                                    WebEngine.choose(prefs, e.id)
+                                }
+                                if (e.id == WebEngine.SYSTEM || e.id == engineChoice) apply()
+                                else confirmSensitive(
+                                    "Switch to ${e.label}?",
+                                    if (e.id == WebEngine.BROWSER) "Spotify will open in your browser. Ad filtering, the custom player, proxy and secure DNS won't be available."
+                                    else "Safe mode turns off the proxy, secure DNS and GPU acceleration. Use it only if the normal engine keeps failing."
+                                ) { apply() }
+                            }.padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = engineChoice == e.id, onClick = null)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(e.label, fontWeight = FontWeight.SemiBold)
+                                Text(e.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Automatic fallback", fontWeight = FontWeight.SemiBold)
+                            Text("Switch to the next engine if this one crashes or the player doesn't load", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = engineAuto, onCheckedChange = { on ->
+                            val apply = {
+                                engineAuto = on
+                                prefs.edit().putBoolean(WebEngine.AUTO, on).apply()
+                            }
+                            if (on) apply()
+                            else confirmSensitive(
+                                "Turn off automatic fallback?",
+                                "If the web engine crashes or the player won't load, ReSpotifuck will stay stuck instead of switching to a backup engine."
+                            ) { apply() }
+                        })
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text("Installed provider: " + WebEngine.provider(appCtx), style = MaterialTheme.typography.bodySmall)
+                    Text("Android picks the WebView provider (System WebView, Chrome, Beta, Dev, Canary) for the whole phone in Developer options.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = {
+                        runCatching { appCtx.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)) }
+                            .onFailure { Toast.makeText(appCtx, "Turn on Developer options first", Toast.LENGTH_SHORT).show() }
+                    }) { Text("Open Android WebView picker") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showEngineDialog = false }) { Text("Done") } }
+        )
+    }
+    var identityIcon by remember { mutableStateOf(AppIdentity.icon(appCtx)) }
+    var identityName by remember { mutableStateOf(AppIdentity.name(appCtx)) }
+    var startPage by remember { mutableStateOf(TweakPrefs.startPage(prefs)) }
+    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            val ok = runCatching {
+                appCtx.contentResolver.openOutputStream(uri)!!.use { it.write(SettingsBackup.export(prefs).toByteArray()) }
+            }.isSuccess
+            Toast.makeText(appCtx, if (ok) "Settings backed up" else "Could not write the backup", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val restored = runCatching {
+                SettingsBackup.import(prefs, appCtx.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() })
+            }
+            restored.onSuccess { n ->
+                Toast.makeText(appCtx, "Restored $n settings. Restarting…", Toast.LENGTH_SHORT).show()
+                restartForProxyChange(appCtx)
+            }.onFailure {
+                Toast.makeText(appCtx, "That file isn't a ReSpotifuck backup", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    if (showIconDialog) {
+        IconNameDialog(
+            initialIcon = identityIcon,
+            initialName = identityName,
+            onApply = { icon, name ->
+                AppIdentity.apply(appCtx, icon, name)
+                identityIcon = icon
+                identityName = name
+                showIconDialog = false
+                Toast.makeText(appCtx, "Home screen icon changed to ${icon.label} · ${name.label}. It can take a few seconds to appear.", Toast.LENGTH_LONG).show()
+            },
+            onDismiss = { showIconDialog = false }
+        )
+    }
+    if (showStartPageDialog) {
+        AlertDialog(
+            onDismissRequest = { showStartPageDialog = false },
+            title = { Text("Start-up page", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    TweakPrefs.startPages.forEach { page ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                startPage = page
+                                prefs.edit().putString(TweakPrefs.START_PAGE, page.id).apply()
+                                showStartPageDialog = false
+                            }.padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = startPage.id == page.id, onClick = null)
+                            Spacer(Modifier.width(12.dp))
+                            Text(page.label)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showStartPageDialog = false }) { Text("Close") } }
+        )
+    }
+    var settingsLocked by remember { mutableStateOf(prefs.getBoolean(SETTINGS_LOCKED, false)) }
+    var showSettingsUnlock by remember { mutableStateOf(false) }
+    fun setSettingsLocked(locked: Boolean) {
+        settingsLocked = locked
+        prefs.edit().putBoolean(SETTINGS_LOCKED, locked).apply()
+    }
+    if (showSettingsUnlock) {
+        Dialog(
+            onDismissRequest = { showSettingsUnlock = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            PinEntryScreen(
+                title = "Unlock settings",
+                subtitle = "Enter your app PIN to turn off the settings lock",
+                onSubmit = { pin ->
+                    when (val r = AppLock.verify(pin)) {
+                        AppLock.Result.Ok -> {
+                            withContext(Dispatchers.Main) {
+                                setSettingsLocked(false)
+                                showSettingsUnlock = false
+                            }
+                            null
+                        }
+                        is AppLock.Result.Wrong -> "Wrong PIN · ${r.attemptsLeft} attempts left"
+                        is AppLock.Result.LockedOut -> "Too many attempts. Try again in ${(r.remainingMs + 999) / 1000} s"
+                    }
+                },
+                secondaryLabel = "Cancel",
+                onSecondary = { showSettingsUnlock = false }
+            )
+        }
+    }
     var autoplayMode by remember { mutableStateOf(prefs.getString("APlayMode", "disabled") ?: "disabled") }
     var takeControl by remember { mutableStateOf(prefs.getBoolean("TakeControl", true)) }
     var andAuto by remember { mutableStateOf(prefs.getBoolean("AndAuto", true)) }
@@ -192,8 +419,27 @@ fun SettingsScreen(
     var customCss by remember { mutableStateOf(prefs.getString("CustomCss", "") ?: "") }
     var amoledTheme by remember { mutableStateOf(amoledThemeState) }
     var swipeStop by remember { mutableStateOf(prefs.getBoolean("SwipeStop", true)) }
-    var btAutoPause by remember { mutableStateOf(prefs.getBoolean("BtAutoPause", false)) }
+    var btAutoPause by remember { mutableStateOf(prefs.getBoolean("BtAutoPause", true)) }
     var btAutoResume by remember { mutableStateOf(prefs.getBoolean("BtAutoResume", false)) }
+
+    var proxyEnabled by remember { mutableStateOf(ProxySettings.enabled(prefs)) }
+    var proxyPort by remember { mutableStateOf(ProxySettings.port(prefs)) }
+    var proxyReuse by remember { mutableStateOf(ProxySettings.reuseConnections(prefs)) }
+    var dnsEnabled by remember { mutableStateOf(DnsSettings.enabled(prefs)) }
+    var dnsFallback by remember { mutableStateOf(DnsSettings.fallback(prefs)) }
+    var dnsSummary by remember { mutableStateOf(DnsSettings.summary(prefs)) }
+    var proxyRestartNeeded by remember { mutableStateOf(false) }
+    var showPortDialog by remember { mutableStateOf(false) }
+    var showDnsDialog by remember { mutableStateOf(false) }
+    var netTestResult by remember { mutableStateOf<String?>(null) }
+    var netTesting by remember { mutableStateOf(false) }
+    var pendingNetChange by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    fun confirmNet(message: String, action: () -> Unit) { pendingNetChange = message to action }
+    val netScope = rememberCoroutineScope()
+    fun applyDns() {
+        DohResolver.configure(prefs)
+        dnsSummary = DnsSettings.summary(prefs)
+    }
 
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showClearDataDialog by remember { mutableStateOf(false) }
@@ -252,6 +498,30 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             SettingSectionCard(
+                title = "SETTINGS LOCK",
+                icon = if (settingsLocked) Icons.Default.Lock else Icons.Default.LockOpen
+            ) {
+                SettingSwitchTile(
+                    title = "Lock settings",
+                    subtitle = if (settingsLocked) {
+                        "On · settings can't be changed" + (if (AppLock.isPinSet()) " (PIN needed to unlock)" else "")
+                    } else "Off · turn on to stop settings being changed",
+                    icon = if (settingsLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                    checked = settingsLocked,
+                    onCheckedChange = { on ->
+                        if (on) setSettingsLocked(true)
+                        else if (AppLock.isPinSet()) showSettingsUnlock = true
+                        else setSettingsLocked(false)
+                    }
+                )
+            }
+
+            Box {
+                Column(
+                    modifier = Modifier.alpha(if (settingsLocked) 0.4f else 1f),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+            SettingSectionCard(
                 title = "PLAYER",
                 icon = Icons.Default.PlayCircle
             ) {
@@ -309,31 +579,32 @@ fun SettingsScreen(
             }
 
             SettingSectionCard(
-                title = "BLUETOOTH",
-                icon = Icons.Default.Smartphone
+                title = "TWEAKS",
+                icon = Icons.Default.Tune
             ) {
-                SettingSwitchTile(
-                    title = "Pause on Disconnect",
-                    subtitle = "Pause when BT/headphones disconnect",
-                    icon = Icons.Default.Smartphone,
-                    checked = btAutoPause,
-                    onCheckedChange = {
-                        btAutoPause = it
-                        prefs.edit().putBoolean("BtAutoPause", it).apply()
-                    }
-                )
-
+                PrefSwitchTile(prefs, TweakPrefs.HIDE_UPSELLS, true, "Hide Premium upsells", "Hide Upgrade / Explore Premium banners and the Create button", Icons.Default.VisibilityOff,
+                    offWarning = "Premium banners, upgrade prompts and the Create button will show again.", confirm = ::confirmSensitive)
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
-
-                SettingSwitchTile(
-                    title = "Resume on Connect",
-                    subtitle = "Resume when BT device connects",
-                    icon = Icons.Default.Smartphone,
-                    checked = btAutoResume,
-                    onCheckedChange = {
-                        btAutoResume = it
-                        prefs.edit().putBoolean("BtAutoResume", it).apply()
-                    }
+                PrefSwitchTile(prefs, TweakPrefs.HIDE_PODCASTS, false, "Hide podcasts & audiobooks", "Hide shows, episodes, audiobooks and video podcasts", Icons.Default.Podcasts)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                PrefSwitchTile(prefs, TweakPrefs.HIDE_SPONSORED, true, "Hide sponsored content", "Hide sponsored and promoted cards and playlists", Icons.Default.Block,
+                    offWarning = "Sponsored and promoted cards and playlists will show again in Home and Search.", confirm = ::confirmSensitive)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                PrefSwitchTile(prefs, TweakPrefs.HIDE_CANVAS, true, "Hide Canvas videos", "Stop the looping videos (saves data and battery)", Icons.Default.VideocamOff)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                PrefSwitchTile(prefs, TweakPrefs.LYRICS_FALLBACK, true, "Lyrics fallback (LRCLIB)", "Show lyrics from lrclib.net when Spotify has none", Icons.Default.Lyrics)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                PrefSwitchTile(prefs, TweakPrefs.REMEMBER_MODES, true, "Remember shuffle & repeat", "Restore your shuffle and repeat choice on launch", Icons.Default.Shuffle)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                PrefSwitchTile(prefs, TweakPrefs.NO_SMART_SHUFFLE, false, "Turn off Smart Shuffle", "Switch Smart Shuffle back to normal shuffle", Icons.Default.ShuffleOn)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                PrefSwitchTile(prefs, TweakPrefs.DATA_SAVER, false, "Data saver", "Smaller artwork and no Canvas videos", Icons.Default.DataSaverOn)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                SettingTile(
+                    title = "Start-up page",
+                    subtitle = startPage.label,
+                    icon = Icons.Default.Home,
+                    onClick = { showStartPageDialog = true }
                 )
             }
 
@@ -347,6 +618,15 @@ fun SettingsScreen(
                     "none" -> "None"
                     else -> "Mobile CSS + JS"
                 }
+                SettingTile(
+                    title = "App icon & name",
+                    subtitle = "${identityIcon.label} · ${identityName.label}",
+                    icon = Icons.Default.Apps,
+                    onClick = { showIconDialog = true }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
                 SettingTile(
                     title = "Theme",
                     subtitle = if (materialYou) "${themePreset.label} (Material You is on)" else themePreset.label,
@@ -427,6 +707,35 @@ fun SettingsScreen(
             }
 
             SettingSectionCard(
+                title = "BLUETOOTH",
+                icon = Icons.Default.Smartphone
+            ) {
+                SettingSwitchTile(
+                    title = "Pause on Disconnect",
+                    subtitle = "Pause when BT/headphones disconnect",
+                    icon = Icons.Default.Smartphone,
+                    checked = btAutoPause,
+                    onCheckedChange = {
+                        btAutoPause = it
+                        prefs.edit().putBoolean("BtAutoPause", it).apply()
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingSwitchTile(
+                    title = "Resume on Connect",
+                    subtitle = "Resume when BT device connects",
+                    icon = Icons.Default.Smartphone,
+                    checked = btAutoResume,
+                    onCheckedChange = {
+                        btAutoResume = it
+                        prefs.edit().putBoolean("BtAutoResume", it).apply()
+                    }
+                )
+            }
+
+            SettingSectionCard(
                 title = "PRIVACY & LOCK",
                 icon = Icons.Default.Lock
             ) {
@@ -436,7 +745,11 @@ fun SettingsScreen(
                     icon = Icons.Default.Lock,
                     checked = pinEnabled,
                     onCheckedChange = { enable ->
-                        securityFlow = if (enable) SecurityFlow.SET_PIN else SecurityFlow.REMOVE_PIN
+                        if (enable) securityFlow = SecurityFlow.SET_PIN
+                        else confirmSensitive(
+                            "Turn off the PIN lock?",
+                            "Anyone who picks up your phone will be able to open ReSpotifuck and change its settings."
+                        ) { securityFlow = SecurityFlow.REMOVE_PIN }
                     }
                 )
                 if (pinEnabled) {
@@ -468,13 +781,144 @@ fun SettingsScreen(
                     icon = Icons.Default.Screenshot,
                     checked = captureAllowed,
                     onCheckedChange = { allow ->
-                        if (allow) securityFlow = SecurityFlow.CAPTURE_PUZZLE else setCapture(false)
+                        if (allow) confirmSensitive(
+                            "Allow screen capture?",
+                            "Screenshots and screen recordings of ReSpotifuck, including your library and account pages, will be possible. You'll need to solve a puzzle next."
+                        ) { securityFlow = SecurityFlow.CAPTURE_PUZZLE } else setCapture(false)
                     }
                 )
             }
 
             SettingSectionCard(
-                title = "SECURITY & NETWORK",
+                title = "PROXY & DNS",
+                icon = Icons.Default.Dns
+            ) {
+                val context = LocalContext.current
+                SettingSwitchTile(
+                    title = "Local proxy",
+                    subtitle = if (proxyEnabled) {
+                        "On · port " + (if (proxyPort == 0) "automatic" else proxyPort.toString()) +
+                            (if (LocalProxyManager.isRunning) " (running on ${LocalProxyManager.port})" else "")
+                    } else "Off · Spotify may refuse the web player and DNS settings won't apply",
+                    icon = Icons.Default.SettingsEthernet,
+                    checked = proxyEnabled,
+                    onCheckedChange = { v ->
+                        confirmNet(
+                            if (v) "Turn the local proxy back on? ReSpotifuck needs to restart to apply it."
+                            else "Turning off the local proxy disables ad filtering and secure DNS, and Spotify may refuse to load the web player or play music. ReSpotifuck needs to restart to apply it."
+                        ) {
+                            proxyEnabled = v
+                            prefs.edit().putBoolean(ProxySettings.ENABLED, v).apply()
+                            proxyRestartNeeded = true
+                        }
+                    }
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                SettingTile(
+                    title = "Proxy port",
+                    subtitle = if (proxyPort == 0) "Automatic (recommended)" else "Fixed: $proxyPort",
+                    icon = Icons.Default.Router,
+                    onClick = {
+                        confirmNet("A fixed proxy port can clash with other apps on your phone. If the port is taken, an automatic one is used instead. Changing it needs a restart.") {
+                            showPortDialog = true
+                        }
+                    }
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                SettingSwitchTile(
+                    title = "Reuse connections",
+                    subtitle = "Keep Spotify connections open between requests (faster)",
+                    icon = Icons.Default.Speed,
+                    checked = proxyReuse,
+                    onCheckedChange = { v ->
+                        confirmNet(
+                            if (v) "Reuse Spotify connections again? This is the faster default."
+                            else "Turning this off opens a new connection for every request, which makes loading and skipping tracks slower."
+                        ) {
+                            proxyReuse = v
+                            prefs.edit().putBoolean(ProxySettings.REUSE, v).apply()
+                            LocalProxyManager.reuseConnections = v
+                        }
+                    }
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                SettingSwitchTile(
+                    title = "Secure DNS (DNS-over-HTTPS)",
+                    subtitle = dnsSummary,
+                    icon = Icons.Default.Dns,
+                    checked = dnsEnabled,
+                    onCheckedChange = { v ->
+                        confirmNet(
+                            if (v) "Turn secure DNS back on? Lookups for Spotify traffic will go to your chosen DNS provider."
+                            else "Turning off secure DNS sends lookups to your phone's normal DNS. AdGuard will stop blocking trackers, and your network provider can see which servers the app looks up."
+                        ) {
+                            dnsEnabled = v
+                            prefs.edit().putBoolean(DnsSettings.ENABLED, v).apply()
+                            applyDns()
+                        }
+                    }
+                )
+                if (dnsEnabled) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                    SettingTile(
+                        title = "DNS provider",
+                        subtitle = DnsSettings.endpoint(prefs),
+                        icon = Icons.Default.Public,
+                        onClick = {
+                            confirmNet("Your DNS provider sees every server ReSpotifuck connects to. A wrong or untrusted custom provider can block Spotify or log your activity. Only use providers you trust.") {
+                                showDnsDialog = true
+                            }
+                        }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                    SettingSwitchTile(
+                        title = "Fall back to device DNS",
+                        subtitle = "If the DNS provider can't be reached",
+                        icon = Icons.Default.SettingsBackupRestore,
+                        checked = dnsFallback,
+                        onCheckedChange = { v ->
+                            confirmNet(
+                                if (v) "Allow falling back to your phone's normal DNS when the provider can't be reached?"
+                                else "Without fallback, Spotify won't load at all whenever your DNS provider is unreachable."
+                            ) {
+                                dnsFallback = v
+                                prefs.edit().putBoolean(DnsSettings.FALLBACK, v).apply()
+                                applyDns()
+                            }
+                        }
+                    )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                SettingTile(
+                    title = if (netTesting) "Testing…" else "Test proxy & DNS",
+                    subtitle = "Resolve and connect to Spotify through the current settings",
+                    icon = Icons.Default.NetworkCheck,
+                    onClick = {
+                        if (netTesting) return@SettingTile
+                        netTesting = true
+                        netScope.launch {
+                            netTestResult = withContext(Dispatchers.IO) { runNetworkTest(prefs) }
+                            netTesting = false
+                        }
+                    }
+                )
+                if (proxyRestartNeeded) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                    SettingTile(
+                        title = "Restart to apply proxy changes",
+                        subtitle = "Restarts ReSpotifuck with the new proxy settings",
+                        icon = Icons.Default.RestartAlt,
+                        onClick = {
+                            confirmNet("ReSpotifuck will close and restart with the new proxy settings. Playback will stop.") {
+                                restartForProxyChange(context)
+                            }
+                        }
+                    )
+                }
+            }
+
+            SettingSectionCard(
+                title = "SECURITY & CERTIFICATE",
                 icon = Icons.Default.Shield
             ) {
                 val context = LocalContext.current
@@ -502,6 +946,38 @@ fun SettingsScreen(
                 title = "SYSTEM",
                 icon = Icons.Default.PowerSettingsNew
             ) {
+                SettingTile(
+                    title = "Back up settings",
+                    subtitle = "Save your settings to a file (your PIN is not included)",
+                    icon = Icons.Default.Backup,
+                    onClick = { backupLauncher.launch("respotifuck-settings.json") }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingTile(
+                    title = "Web engine",
+                    subtitle = WebEngine.label(engineChoice) + (if (WebEngine.isFallback(prefs)) " (now using ${WebEngine.label(WebEngine.active(prefs))})" else "") + " · " + WebEngine.provider(appCtx),
+                    icon = Icons.Default.Web,
+                    onClick = { showEngineDialog = true }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingTile(
+                    title = "Restore settings",
+                    subtitle = "Load settings from a backup file and restart",
+                    icon = Icons.Default.Restore,
+                    onClick = {
+                        confirmSensitive(
+                            "Restore settings?",
+                            "Your current settings will be replaced by the ones in the backup and ReSpotifuck will restart."
+                        ) { restoreLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
                 SettingSwitchTile(
                     title = "Swipe to Stop Service",
                     subtitle = "Kill background service from recents",
@@ -608,6 +1084,14 @@ fun SettingsScreen(
                 icon = Icons.Default.Info
             ) {
                 SettingTile(
+                    title = "We don't exist",
+                    subtitle = "And we'd like to keep it that way. Please keep discussions private and only share ReSpotifuck with people you trust.",
+                    icon = Icons.Default.VisibilityOff
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingTile(
                     title = "GitHub Repository",
                     subtitle = "github.com/ReSpotF-ck/-ReSpotif-ck-App",
                     painter = painterResource(id = R.drawable.ic_github),
@@ -645,6 +1129,91 @@ fun SettingsScreen(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
 
+                var showGuide by remember { mutableStateOf(false) }
+                SettingTile(
+                    title = "Beginner guide",
+                    subtitle = "New here? How to set up and use ReSpotifuck",
+                    icon = Icons.Default.School,
+                    onClick = { showGuide = true }
+                )
+                if (showGuide) BeginnerGuideDialog(onDismiss = { showGuide = false })
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingTile(
+                    title = "ReSpotifuck website",
+                    subtitle = "respotfck.netlify.app",
+                    icon = Icons.Default.Language,
+                    onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://respotfck.netlify.app"))) }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingTile(
+                    title = "Download page",
+                    subtitle = "respotfck.netlify.app · latest APKs and install steps",
+                    icon = Icons.Default.Download,
+                    onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://respotfck.netlify.app/download.html"))) }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingTile(
+                    title = "ReSpotF-ck on GitHub",
+                    subtitle = "All project repositories",
+                    icon = Icons.Default.Groups,
+                    onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ReSpotF-ck"))) }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingTile(
+                    title = "Music-Resources",
+                    subtitle = "Index of open-source music apps and tools",
+                    icon = Icons.Default.LibraryMusic,
+                    onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ReSpotF-ck/Music-Resources"))) }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingTile(
+                    title = "Report a problem",
+                    subtitle = "Open an issue on GitHub",
+                    icon = Icons.Default.BugReport,
+                    onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ReSpotF-ck/-ReSpotif-ck-App/issues"))) }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                var showRules by remember { mutableStateOf(false) }
+                SettingTile(
+                    title = "Rules",
+                    subtitle = "The rules for using ReSpotifuck",
+                    icon = Icons.Default.Gavel,
+                    onClick = { showRules = true }
+                )
+                if (showRules) {
+                    RulesDialog(onDismiss = { showRules = false })
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                var showCompare by remember { mutableStateOf(false) }
+                SettingTile(
+                    title = "Compare with Spotilol & Spotifuck",
+                    subtitle = "What this app inherits and what ReSpotifuck adds",
+                    icon = Icons.Default.Compare,
+                    onClick = { showCompare = true }
+                )
+                if (showCompare) {
+                    CompareDialog(
+                        onOpen = { url -> context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) },
+                        onDismiss = { showCompare = false }
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
                 SettingTile(
                     title = "ReSpotifuck Version",
                     subtitle = "v$appVersionName",
@@ -673,6 +1242,25 @@ fun SettingsScreen(
             )
 
             Spacer(Modifier.height(8.dp))
+                        }
+                if (settingsLocked) {
+                    val lockedContext = LocalContext.current
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                Toast.makeText(
+                                    lockedContext,
+                                    "Settings are locked. Turn off Lock settings to change them.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                    )
+                }
+            }
         }
     }
 
@@ -718,12 +1306,137 @@ fun SettingsScreen(
                     Text("Third-party services may receive account, playback, and device data under their own terms and privacy policies.")
                     Text("Ad filtering and player controls modify web-player requests and behavior. Features may stop working or conflict with service terms. They do not grant rights to copy or redistribute music. Follow applicable service terms, copyright laws, and DMCA requirements.")
                     Text("The app's local proxy can decrypt and modify HTTPS traffic routed through its WebView when its CA certificate is installed. Remove that certificate from Android Settings > Security > Encryption & credentials > User credentials if you stop using the app.")
-                    Text("The proxy is not a VPN, encrypted DNS service, or anonymity tool. Spotify and network providers can still observe activity, and DNS uses the device's configured resolver.")
+                    Text("The proxy is not a VPN, encrypted DNS service, or anonymity tool. Spotify and network providers can still observe activity, and DNS for proxied Spotify traffic uses encrypted DNS-over-HTTPS (AdGuard by default) unless you turn it off in Settings › Proxy & DNS.")
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showPrivacyNotice = false }) { Text("Close") }
             }
+        )
+    }
+
+    if (showPortDialog) {
+        var text by remember { mutableStateOf(if (proxyPort == 0) "" else proxyPort.toString()) }
+        val parsed = text.trim().toIntOrNull()
+        val valid = text.isBlank() || (parsed != null && parsed in 1024..65535)
+        AlertDialog(
+            onDismissRequest = { showPortDialog = false },
+            title = { Text("Proxy port", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Leave empty to pick a free port automatically. Fixed ports must be 1024–65535; if it's in use, an automatic port is used instead.")
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { v -> text = v.filter { it.isDigit() }.take(5) },
+                        singleLine = true,
+                        isError = !valid,
+                        placeholder = { Text("Automatic") },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = valid, onClick = {
+                    val port = if (text.isBlank()) 0 else parsed ?: 0
+                    if (port != proxyPort) {
+                        proxyPort = port
+                        prefs.edit().putInt(ProxySettings.PORT, port).apply()
+                        proxyRestartNeeded = true
+                    }
+                    showPortDialog = false
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { showPortDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showDnsDialog) {
+        var selected by remember { mutableStateOf(DnsSettings.provider(prefs).key) }
+        var custom by remember { mutableStateOf(DnsSettings.customUrl(prefs)) }
+        val customValid = selected != "custom" || DnsSettings.isValidDohUrl(custom)
+        AlertDialog(
+            onDismissRequest = { showDnsDialog = false },
+            title = { Text("DNS provider", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    DnsSettings.providers.forEach { p ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { selected = p.key }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = selected == p.key, onClick = { selected = p.key })
+                            Column {
+                                Text(p.label)
+                                if (p.url.isNotEmpty()) Text(
+                                    p.url,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    if (selected == "custom") {
+                        OutlinedTextField(
+                            value = custom,
+                            onValueChange = { custom = it.trim() },
+                            singleLine = true,
+                            isError = !customValid,
+                            label = { Text("https://…/dns-query") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = customValid, onClick = {
+                    prefs.edit()
+                        .putString(DnsSettings.PROVIDER, selected)
+                        .putString(DnsSettings.CUSTOM_URL, custom)
+                        .apply()
+                    applyDns()
+                    showDnsDialog = false
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { showDnsDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    pendingNetChange?.let { (message, action) ->
+        AlertDialog(
+            onDismissRequest = { pendingNetChange = null },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Change network settings?", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(message)
+                    Text(
+                        "Wrong proxy or DNS settings can stop Spotify from loading or playing. You can switch it back here at any time.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingNetChange = null
+                    action()
+                }) { Text("Continue", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { pendingNetChange = null }) { Text("Cancel") } }
+        )
+    }
+
+    netTestResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { netTestResult = null },
+            title = { Text("Proxy & DNS test", fontWeight = FontWeight.Bold) },
+            text = { Text(result) },
+            confirmButton = { TextButton(onClick = { netTestResult = null }) { Text("OK") } }
         )
     }
 
@@ -1261,3 +1974,264 @@ fun SettingsScreenPreview() {
 }
 
 private enum class SecurityFlow { NONE, SET_PIN, CHANGE_VERIFY, CHANGE_SET, REMOVE_PIN, CAPTURE_PUZZLE }
+
+private fun runNetworkTest(prefs: SharedPreferences): String {
+    val lines = mutableListOf<String>()
+    val host = "open.spotify.com"
+    if (DnsSettings.enabled(prefs)) {
+        val endpoint = DnsSettings.endpoint(prefs)
+        val t0 = System.nanoTime()
+        lines += try {
+            val addrs = DohResolver.lookup(endpoint, host)
+            "DNS ✓ $host → ${addrs.first().hostAddress} via $endpoint (${(System.nanoTime() - t0) / 1_000_000} ms)"
+        } catch (e: Exception) {
+            "DNS ✗ $endpoint: ${e.message}" + if (DnsSettings.fallback(prefs)) " (device DNS will be used)" else ""
+        }
+        lines += try {
+            DohResolver.lookup(endpoint, "doubleclick.net")
+            "Ad blocking: doubleclick.net was not blocked by this provider"
+        } catch (e: DnsBlockedException) {
+            "Ad blocking ✓ doubleclick.net is blocked"
+        } catch (e: Exception) {
+            "Ad blocking: doubleclick.net lookup failed (${e.message})"
+        }
+    } else {
+        lines += "DNS: secure DNS is off, using the device resolver"
+    }
+    if (!ProxySettings.enabled(prefs)) {
+        lines += "Proxy: off"
+    } else if (!LocalProxyManager.isRunning) {
+        lines += "Proxy ✗ not running — restart the app"
+    } else {
+        val t0 = System.nanoTime()
+        val ok = LocalProxyManager.testConnection(host)
+        lines += if (ok) "Proxy ✓ HTTPS to $host through 127.0.0.1:${LocalProxyManager.port} (${(System.nanoTime() - t0) / 1_000_000} ms)"
+        else "Proxy ✗ could not reach $host through 127.0.0.1:${LocalProxyManager.port}"
+    }
+    return lines.joinToString("\n\n")
+}
+
+internal fun restartForProxyChange(context: android.content.Context) {
+    LocalProxyManager.stop()
+    val intent = android.content.Intent(context, CertificateActivity::class.java)
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+    context.startActivity(intent)
+}
+
+private class CompareApp(val name: String, val role: String, val url: String, val points: List<String>)
+
+private val compareApps = listOf(
+    CompareApp(
+        "Spotifuck", "The original app by deviato (Java, closed source)", "https://github.com/ReSpotF-ck/old-Spotifck_src-clone",
+        listOf(
+            "Spotify web player in a background WebView service",
+            "Audio ad filtering: MP3 ads from Spotify's CDNs swapped for silence; analytics blocked",
+            "Media notification, home-screen widget and Android Auto controls",
+            "Opens spotify: and open.spotify.com links in the app",
+            "Autoplay, Take Control, auto-close Now Playing, AMOLED, GUI hack mode",
+            "Auto-shutdown and sleep timers, force portrait, force English",
+            "Headphone and Bluetooth auto play/stop"
+        )
+    ),
+    CompareApp(
+        "Spotilol", "Open-source Kotlin rewrite of Spotifuck", "https://github.com/oljcvw/Spotilol",
+        listOf(
+            "Dropped Spotifuck's home widget, link handler, MP3 ad muting and force-English option",
+            "Spotify web player in an Android WebView, with audio ad filtering",
+            "Media notification, lock screen, Bluetooth and Wear OS controls",
+            "Autoplay modes, Take Control, Android Auto controls",
+            "Pause/resume on Bluetooth or headphone disconnect",
+            "AMOLED, Material You and custom CSS",
+            "Local HTTPS proxy with its own CA certificate",
+            "Update checker"
+        )
+    ),
+    CompareApp(
+        "ReSpotifuck", "This app: everything in Spotilol, plus", "https://github.com/ReSpotF-ck/-ReSpotif-ck-App",
+        listOf(
+            "MP3 ad muting from Spotifuck restored, now done inside the proxy",
+            "Tweaks: hide upsells, podcasts, sponsored items and Canvas; LRCLIB lyrics; data saver",
+            "Seasonal and meme app icons, preset app names, settings backup/restore",
+            "Web engine choice with automatic fallback, warnings before risky changes",
+            "Faster proxy: no 32-connection limit, connection reuse, buffered I/O, no Nagle delay",
+            "Faster start-up: no fixed delays, offline certificate check, WebView cache kept",
+            "Secure DNS (DNS-over-HTTPS) via AdGuard, on by default, with editable Proxy & DNS settings",
+            "Fixed bottom player bar: correct track, artist and album art, working shuffle",
+            "Optional PIN lock with lockout, offered on first install",
+            "Screen capture blocked by default, unlocked with a puzzle",
+            "Theme presets with ReSpotifuck Red as the default",
+            "Animated launch splash"
+        )
+    )
+)
+
+private val appRules = listOf(
+    "We don't exist. Keep it that way.",
+    "You must be 18 or older. Some content and language may not be suitable for younger audiences.",
+    "Don't post download links, the website or the repos publicly. Share only with people you trust.",
+    "Don't sell, re-upload or rebrand the app as your own.",
+    "Only download from respotfck.netlify.app or the official GitHub. Never trust APKs from anywhere else.",
+    "Don't use it to harm or harass anyone, or to break the law where you live.",
+    "Use your own Spotify account. No sharing accounts or reselling access.",
+    "Report bugs privately to the maintainer, not in public Spotify forums.",
+    "It's provided as is. You use it at your own risk."
+)
+
+@Composable
+private fun RulesDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Gavel, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("Rules", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                appRules.forEachIndexed { i, rule ->
+                    Text("${i + 1}. $rule", style = MaterialTheme.typography.bodyMedium)
+                }
+                Text(
+                    "By using ReSpotifuck you agree to these rules.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Got it") } }
+    )
+}
+
+@Composable
+private fun CompareDialog(onOpen: (String) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Compare, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("How ReSpotifuck compares", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                compareApps.forEach { app ->
+                    val isThis = app.name == "ReSpotifuck"
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isThis) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth().clickable { onOpen(app.url) }
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                app.name,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isThis) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(app.role, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            app.points.forEach { point ->
+                                Text("• $point", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "Tap a card to open its project page. ReSpotifuck is not affiliated with Spotify. We don't exist; please keep it that way and only share with people you trust.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
+}
+
+private const val SETTINGS_LOCKED = "SettingsLocked"
+
+@Composable
+private fun PrefSwitchTile(
+    prefs: SharedPreferences,
+    key: String,
+    default: Boolean,
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    offWarning: String? = null,
+    confirm: ((String, String, () -> Unit) -> Unit)? = null
+) {
+    var on by remember { mutableStateOf(prefs.getBoolean(key, default)) }
+    SettingSwitchTile(title = title, subtitle = subtitle, icon = icon, checked = on) { v ->
+        val apply = {
+            on = v
+            prefs.edit().putBoolean(key, v).apply()
+        }
+        if (!v && offWarning != null && confirm != null) confirm("Turn off \"$title\"?", offWarning, apply) else apply()
+    }
+}
+
+@Composable
+private fun IconNameDialog(
+    initialIcon: AppIdentity.Icon,
+    initialName: AppIdentity.Name,
+    onApply: (AppIdentity.Icon, AppIdentity.Name) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var icon by remember { mutableStateOf(initialIcon) }
+    var name by remember { mutableStateOf(initialName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("App icon & name", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                listOf("Classic & seasonal" to AppIdentity.icons.filter { it.id == "default" || it.seasonal },
+                    "Weird & meme" to AppIdentity.icons.filter { it.id != "default" && !it.seasonal }).forEach { (group, list) ->
+                    Text(group, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    list.chunked(4).forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            row.forEach { option ->
+                                val selected = option.id == icon.id
+                                Column(
+                                    Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { icon = option }.padding(4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Image(
+                                        painter = painterResource(option.drawable),
+                                        contentDescription = option.label,
+                                        modifier = Modifier
+                                            .size(52.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black)
+                                            .border(
+                                                if (selected) 3.dp else 1.dp,
+                                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                                CircleShape
+                                            )
+                                    )
+                                    Text(option.label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                            repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+                Text("Name", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                AppIdentity.names.forEach { option ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { name = option }.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = option.id == name.id, onClick = null)
+                        Spacer(Modifier.width(10.dp))
+                        Text(option.label)
+                    }
+                }
+                Text(
+                    "Only the built-in designs and names can be used. Your home-screen shortcut is replaced when you apply.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onApply(icon, name) }) { Text("Apply") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}

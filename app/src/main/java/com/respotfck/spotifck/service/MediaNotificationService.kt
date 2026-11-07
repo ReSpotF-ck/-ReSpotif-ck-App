@@ -1,5 +1,6 @@
 package com.respotfck.spotifck.service
 
+import com.respotfck.spotifck.AppIdentity
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -87,7 +88,7 @@ class MediaNotificationService : Service() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
                 val prefs = getSharedPreferences("spotilol_prefs", MODE_PRIVATE)
-                if (prefs.getBoolean("BtAutoPause", false)) pausePlayback()
+                if (prefs.getBoolean("BtAutoPause", true)) pausePlayback()
             }
         }
     }
@@ -97,7 +98,7 @@ class MediaNotificationService : Service() {
             val prefs = getSharedPreferences("spotilol_prefs", MODE_PRIVATE)
             when (intent.action) {
                 BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                    if (prefs.getBoolean("BtAutoPause", false)) pausePlayback()
+                    if (prefs.getBoolean("BtAutoPause", true)) pausePlayback()
                 }
                 BluetoothDevice.ACTION_ACL_CONNECTED -> {
                     if (prefs.getBoolean("BtAutoResume", false)) resumePlayback()
@@ -114,7 +115,11 @@ class MediaNotificationService : Service() {
         registerReceivers()
         registerDisconnectReceivers()
         try {
-            startForeground(NOTIFICATION_ID, buildNotification(), getStartForegroundServiceType())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, buildNotification(), getStartForegroundServiceType())
+            } else {
+                startForeground(NOTIFICATION_ID, buildNotification())
+            }
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Failed to start foreground", e)
             stopSelf()
@@ -283,6 +288,7 @@ class MediaNotificationService : Service() {
 
             if (coverUrl.isNotEmpty() && coverUrl != "null" && coverUrl != lastCoverUrl) {
                 lastCoverUrl = coverUrl
+                coverBitmap = null
                 loadCoverArt(coverUrl)
             } else if (coverUrl.isEmpty() || coverUrl == "null") {
                 lastCoverUrl = ""
@@ -322,7 +328,7 @@ class MediaNotificationService : Service() {
         val builder = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentArtist)
-            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "ReSpotifuck")
+            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, AppIdentity.currentName)
             .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, currentDuration)
         coverBitmap?.let { bmp ->
             builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bmp)
@@ -350,6 +356,8 @@ class MediaNotificationService : Service() {
                     val h = (raw.height * scale).toInt()
                     val scaled = Bitmap.createScaledBitmap(raw, w, h, true)
                     if (scaled != raw) raw.recycle()
+                    // A newer track may have started while this image was downloading.
+                    if (url != lastCoverUrl) return@Thread
                     coverBitmap = scaled
                     updateMetadata()
                     showNotification()
@@ -391,9 +399,9 @@ class MediaNotificationService : Service() {
         ).build()
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(currentTitle.ifEmpty { "ReSpotifuck" })
+            .setContentTitle(currentTitle.ifEmpty { AppIdentity.currentName })
             .setContentText(currentArtist)
-            .setSubText("ReSpotifuck")
+            .setSubText(AppIdentity.currentName)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(contentIntent)
             .setOngoing(true)

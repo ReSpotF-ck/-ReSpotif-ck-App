@@ -128,6 +128,9 @@ object LocalProxyManager {
     private const val GCM_TAG_BITS = 128
 
     fun init(context: Context) {
+        if (silentMp3 == null) {
+            silentMp3 = runCatching { context.assets.open("silent.mp3").use { it.readBytes() } }.getOrNull()
+        }
         val ksFile = File(context.filesDir, KEYSTORE_FILE)
         val password = getOrCreateKeystorePassword(context)
 
@@ -207,14 +210,26 @@ object LocalProxyManager {
         Log.d(TAG, "CA certificate loaded")
     }
 
-    fun start() {
+    /** Upstream keep-alive pooling; toggled from Settings ("Reuse connections"). */
+    @Volatile var reuseConnections = true
+
+    /** Binds the proxy on [preferredPort] (0 = automatic); falls back to an automatic port if it's taken. */
+    fun start(preferredPort: Int = 0) {
         if (serverSocket != null) return
+        val loopback = java.net.InetAddress.getByName("127.0.0.1")
         // Bind synchronously so callers can use isRunning/port immediately without sleeping.
         val server = try {
-            ServerSocket(0, 128, java.net.InetAddress.getByName("127.0.0.1"))
+            ServerSocket(preferredPort, 128, loopback)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start proxy", e)
-            return
+            if (preferredPort == 0) {
+                Log.e(TAG, "Failed to start proxy", e)
+                return
+            }
+            Log.w(TAG, "Port $preferredPort unavailable (${e.message}), using an automatic port")
+            try { ServerSocket(0, 128, loopback) } catch (e2: Exception) {
+                Log.e(TAG, "Failed to start proxy", e2)
+                return
+            }
         }
         serverSocket = server
         Log.d(TAG, "Proxy started on port ${server.localPort}")
@@ -256,7 +271,7 @@ object LocalProxyManager {
 
     /** Parks a still-usable upstream socket for reuse, or closes it if it can't be reused. */
     private fun releaseUpstreamSocket(host: String, port: Int, sock: SSLSocket, reusable: Boolean) {
-        if (!reusable || sock.isClosed || !sock.isConnected) {
+        if (!reusable || !reuseConnections || sock.isClosed || !sock.isConnected) {
             try { sock.close() } catch (_: Exception) {}
             return
         }
@@ -299,9 +314,29 @@ object LocalProxyManager {
         }
     }
 
+    /** TCP-connects to [host] using the configured resolver (DNS-over-HTTPS or system), trying each address. */
+    private fun connectRaw(host: String, port: Int): Socket {
+        val addresses = DohResolver.resolve(host)
+        var last: Exception? = null
+        for (addr in addresses.sortedBy { if (it is java.net.Inet4Address) 0 else 1 }) {
+            val s = Socket()
+            try {
+                s.tcpNoDelay = true
+                s.connect(InetSocketAddress(addr, port), 10000)
+                return s
+            } catch (e: Exception) {
+                last = e
+                try { s.close() } catch (_: Exception) {}
+            }
+        }
+        throw last ?: java.net.UnknownHostException(host)
+    }
+
     /** Opens and fully verifies a brand-new upstream TLS connection. */
     private fun openUpstreamSocket(host: String, port: Int, useHttp2: Boolean): SSLSocket {
-        val socket = (SSLSocketFactory.getDefault().createSocket(host, port) as SSLSocket).also {
+        val raw = connectRaw(host, port)
+        val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+        val socket = (factory.createSocket(raw, host, port, true) as SSLSocket).also {
             if (Build.VERSION.SDK_INT >= 29) {
                 val params = it.sslParameters
                 params.applicationProtocols = if (useHttp2) arrayOf("h2") else arrayOf("http/1.1")
@@ -446,6 +481,26 @@ object LocalProxyManager {
                     }
 
                     val statusCode = extractStatusCode(respHead)
+                    val silence = silentMp3
+                    if (silence != null && (statusCode == 200 || statusCode == 206) &&
+                        isAudioAd(host, reqHead.statusLine, getHeaderValue(respHead, "Content-Type"))
+                    ) {
+                        val drained = pipeBody(upstreamIn, DiscardStream, respHead, isResponse = true)
+                        audioAdsReplaced++
+                        Log.i(TAG, "Replaced MP3 audio ad from $host with silence")
+                        val sb = StringBuilder("HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: ${silence.size}\r\n")
+                        for (h in CORS_HEADERS) getHeaderValue(respHead, h)?.let { sb.append(h).append(": ").append(it).append("\r\n") }
+                        if (drained) sb.append("Connection: close\r\n")
+                        sb.append("\r\n")
+                        clientOut.write(sb.toString().toByteArray(Charsets.ISO_8859_1))
+                        clientOut.write(silence)
+                        clientOut.flush()
+                        if (drained) {
+                            reuseUpstream = false
+                            break
+                        }
+                        continue
+                    }
                     writeHead(respHead, clientOut)
 
                     val upstreamExhausted = pipeBody(upstreamIn, clientOut, respHead, isResponse = true)
@@ -486,6 +541,36 @@ object LocalProxyManager {
     }
 
     private const val STREAM_BUFFER_BYTES = 16 * 1024
+
+    @Volatile private var silentMp3: ByteArray? = null
+    @Volatile var audioAdsReplaced = 0
+        private set
+
+    private val CORS_HEADERS = listOf(
+        "Access-Control-Allow-Origin", "Access-Control-Allow-Credentials",
+        "Access-Control-Expose-Headers", "Timing-Allow-Origin"
+    )
+    private val AUDIO_AD_HOSTS = listOf("amillionads.com", "2mdn.net", "adxcel.com", "adstudio-assets.scdn.co")
+
+    private object DiscardStream : OutputStream() {
+        override fun write(b: Int) {}
+        override fun write(b: ByteArray, off: Int, len: Int) {}
+    }
+
+    /**
+     * Spotify serves music as encrypted MP4 but audio ads as plain MP3 from the same CDNs,
+     * so (like the original Spotifuck) any audio/mpeg from those paths is treated as an ad.
+     */
+    private fun isAudioAd(host: String, requestLine: String, contentType: String?): Boolean {
+        if (contentType == null || !contentType.trim().lowercase().startsWith("audio/mpeg")) return false
+        val h = host.lowercase()
+        if ("podz-content" in h || "gew4-spclient" in h) return false
+        val target = requestLine.split(' ').getOrNull(1) ?: return false
+        val path = if (target.startsWith("http")) runCatching { java.net.URI(target).rawPath }.getOrNull() ?: return false else target
+        if ((h.endsWith("akamaized.net") || h.endsWith("scdn.co") || h.endsWith("spotifycdn.com")) && path.startsWith("/audio/")) return true
+        if (h.endsWith("scdn.co") && path.startsWith("/mp3-ad/")) return true
+        return AUDIO_AD_HOSTS.any { h == it || h.endsWith(".$it") }
+    }
 
     /** Tell the client why the tunnel failed instead of closing it with an empty reply. */
     private fun writeBadGateway(out: java.io.OutputStream, host: String) {
@@ -762,6 +847,36 @@ object LocalProxyManager {
         t2.start()
         t1.join()
         t2.join()
+    }
+
+    /** Opens an HTTPS connection to [host] through the running proxy and verifies the TLS handshake. */
+    fun testConnection(host: String = "open.spotify.com"): Boolean {
+        if (!isRunning) return false
+        return try {
+            Socket().use { sock ->
+                sock.connect(InetSocketAddress("127.0.0.1", port), 5000)
+                sock.soTimeout = 10000
+                sock.outputStream.write("CONNECT $host:443 HTTP/1.1\r\nHost: $host\r\n\r\n".toByteArray())
+                sock.outputStream.flush()
+                val reader = sock.inputStream.bufferedReader()
+                val status = reader.readLine() ?: return false
+                if (!status.contains("200")) return false
+                while (reader.readLine()?.isNotEmpty() == true) { }
+                val ssl = SSLContext.getDefault().socketFactory.createSocket(sock, host, 443, true) as SSLSocket
+                ssl.useClientMode = true
+                ssl.startHandshake()
+                val w = ssl.outputStream
+                w.write("HEAD / HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n".toByteArray())
+                w.flush()
+                val resp = ssl.inputStream.bufferedReader().readLine() ?: ""
+                ssl.close()
+                Log.d(TAG, "Proxy test to $host: $resp")
+                resp.startsWith("HTTP/1.1") && !resp.contains(" 502 ")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Proxy test to $host failed: ${e.message}")
+            false
+        }
     }
 
     fun isCAInstalled(): Boolean {
