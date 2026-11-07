@@ -1023,10 +1023,10 @@ fun SettingsScreen(
                 SettingTile(
                     title = if (checkingForUpdates) "Checking for Updates…" else "Check for Updates",
                     subtitle = when {
-                        checkingForUpdates -> "Checking GitHub Releases and release-assets"
+                        checkingForUpdates -> "Checking the ReSpotifuck site and GitHub"
                         hasUpdate -> "Version ${checkedVersion ?: "new"} is available"
                         checkedVersion != null -> "Up to date · latest v$checkedVersion"
-                        else -> "Check GitHub Releases and release-assets"
+                        else -> "Check the ReSpotifuck site and GitHub"
                     },
                     icon = Icons.Default.SystemUpdate,
                     showBadge = hasUpdate,
@@ -1054,17 +1054,19 @@ fun SettingsScreen(
                 if (hasUpdate) {
                     SettingTile(
                         title = "Download ReSpotifuck ${uc.latestVersion() ?: "update"}",
-                        subtitle = "Open the signed APK from GitHub",
+                        subtitle = "Download the signed APK (members only)",
                         icon = Icons.AutoMirrored.Filled.OpenInNew,
                         onClick = {
                             val target = uc.downloadUrl() ?: uc.releaseUrl()
                             if (target.isNullOrBlank()) {
                                 Toast.makeText(updateContext, "No download link is available yet", Toast.LENGTH_SHORT).show()
                             } else {
-                                runCatching {
-                                    updateContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
-                                }.onFailure {
-                                    Toast.makeText(updateContext, "Could not open the download link", Toast.LENGTH_SHORT).show()
+                                uc.resolveDownload(target) { url ->
+                                    runCatching {
+                                        updateContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                    }.onFailure {
+                                        Toast.makeText(updateContext, "Could not open the download link", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
                         }

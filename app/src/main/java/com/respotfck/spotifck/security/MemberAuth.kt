@@ -30,6 +30,8 @@ object MemberAuth {
     val signedIn = mutableStateOf(false)
     val memberName = mutableStateOf<String?>(null)
 
+    fun token(): String? = if (::prefs.isInitialized) prefs.getString(KEY_TOKEN, null) else null
+
     fun install(app: Application) {
         prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         memberName.value = prefs.getString(KEY_NAME, null)

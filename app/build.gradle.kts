@@ -29,8 +29,8 @@ android {
         applicationId = "com.respotfck.spotifck"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.0.9"
+        versionCode = 9
+        versionName = "1.0.10"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }

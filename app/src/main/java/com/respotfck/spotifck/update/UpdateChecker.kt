@@ -3,6 +3,7 @@ package com.respotfck.spotifck.update
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.respotfck.spotifck.security.MemberAuth
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -21,6 +22,9 @@ class UpdateChecker(private val context: Context) {
         private const val ASSETS_API_URL = "https://api.github.com/repos/ReSpotF-ck/-ReSpotif-ck-App/contents/release-assets?ref=main"
         private const val RELEASES_PAGE_URL = "https://github.com/ReSpotF-ck/-ReSpotif-ck-App/releases/latest"
         private const val ASSETS_PAGE_URL = "https://github.com/ReSpotF-ck/-ReSpotif-ck-App/tree/main/release-assets"
+        private const val SITE = "https://respotfck.netlify.app"
+        private const val SITE_LATEST_URL = "$SITE/api/latest"
+        private const val SITE_DOWNLOAD_PAGE = "$SITE/download"
         private const val PREFS_NAME = "spotilol_prefs"
         private const val KEY_HAS_UPDATE = "hasUpdateAvailable"
         private const val KEY_LAST_CHECK = "LastUpdateCheck"
@@ -40,6 +44,27 @@ class UpdateChecker(private val context: Context) {
     fun downloadUrl(): String? = preferences().getString(KEY_APK_URL, null)
 
     fun releaseUrl(): String? = preferences().getString(KEY_RELEASE_URL, null)
+
+    /** Members-only site links (/api/file/...) are swapped for a short-lived signed URL right before opening. */
+    fun resolveDownload(url: String, onResult: (String) -> Unit) {
+        Thread {
+            val resolved = if (url.startsWith("$SITE/api/file/")) {
+                runCatching {
+                    val conn = URL(url).openConnection() as HttpURLConnection
+                    try {
+                        conn.instanceFollowRedirects = false
+                        conn.connectTimeout = 8000
+                        conn.readTimeout = 8000
+                        MemberAuth.token()?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
+                        if (conn.responseCode in 300..399) conn.getHeaderField("Location") else null
+                    } finally {
+                        conn.disconnect()
+                    }
+                }.getOrNull() ?: SITE_DOWNLOAD_PAGE
+            } else url
+            Handler(Looper.getMainLooper()).post { onResult(resolved) }
+        }.start()
+    }
 
     fun clearUpdateAvailable() {
         preferences().edit().putBoolean(KEY_HAS_UPDATE, false).apply()
@@ -86,8 +111,29 @@ class UpdateChecker(private val context: Context) {
         }.start()
     }
 
-    /** Checks both GitHub Releases and the release-assets folder on main, and returns the newer one. */
+    /** Members-only list on the website; works when the GitHub repo is private. */
+    private fun fetchFromSite(): ReleaseInfo? {
+        val token = MemberAuth.token() ?: return null
+        val json = requestBody(SITE_LATEST_URL, token)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return null
+        val release = json.optJSONObject("release") ?: return null
+        val version = release.optString("version").takeIf { it.matches(Regex("[0-9]+(?:\\.[0-9]+)*")) } ?: return null
+        val path = release.optString("url").takeIf { it.startsWith("/api/file/") }
+        return ReleaseInfo(version, SITE_DOWNLOAD_PAGE, path?.let { SITE + it })
+    }
+
+    /** Checks the website, GitHub Releases and release-assets on main, and returns the newest. */
     private fun fetchLatestRelease(): ReleaseInfo? {
+        val fromSite = runCatching { fetchFromSite() }.getOrNull()
+        val fromGitHub = runCatching { fetchLatestGitHubRelease() }.getOrNull()
+        return when {
+            fromSite == null -> fromGitHub
+            fromGitHub == null -> fromSite
+            compareVersions(fromGitHub.version, fromSite.version) > 0 -> fromGitHub
+            else -> fromSite
+        }
+    }
+
+    private fun fetchLatestGitHubRelease(): ReleaseInfo? {
         val releaseJson = requestBody(API_URL)?.let { runCatching { JSONObject(it) }.getOrNull() }
         val releaseVersion = releaseJson?.optString("tag_name")
             ?.removePrefix("v")
@@ -148,10 +194,11 @@ class UpdateChecker(private val context: Context) {
         return candidates.maxWithOrNull { a, b -> compareVersions(a.version, b.version) }
     }
 
-    private fun requestBody(url: String): String? {
+    private fun requestBody(url: String, bearer: String? = null): String? {
         val connection = URL(url).openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = "GET"
+            bearer?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
             connection.setRequestProperty("Accept", "application/vnd.github+json")
             connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
             connection.setRequestProperty("User-Agent", "ReSpotifuck-Android")
