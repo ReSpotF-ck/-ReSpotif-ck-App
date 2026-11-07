@@ -11,6 +11,7 @@ import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.respotfck.spotifck.security.AppLock
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -43,6 +44,10 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Screenshot
+import androidx.compose.material.icons.filled.Password
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
@@ -87,6 +92,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import com.respotfck.spotifck.R
 import com.respotfck.spotifck.ui.theme.SpotifyTheme
+import com.respotfck.spotifck.ui.theme.ThemePreset
+import com.respotfck.spotifck.ui.theme.ThemePrefs
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -105,26 +115,30 @@ class SettingsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        )
+        AppLock.applyScreenCapturePolicy(window)
         prefs = getSharedPreferences("spotilol_prefs", MODE_PRIVATE)
 
         setContent {
             var materialYou by remember { mutableStateOf(prefs.getBoolean("MaterialYou", false)) }
             var amoledTheme by remember { mutableStateOf(prefs.getBoolean("AmoledTheme", false)) }
-            SpotifyTheme(useDynamicColor = materialYou, amoled = amoledTheme) {
+            var themePreset by remember { mutableStateOf(ThemePrefs.preset(prefs)) }
+            SpotifyTheme(useDynamicColor = materialYou, amoled = amoledTheme, preset = themePreset) {
                 SettingsScreen(
                     prefs = prefs,
                     materialYou = materialYou,
                     onMaterialYouChange = { materialYou = it },
                     amoledThemeState = amoledTheme,
                     onAmoledThemeChange = { amoledTheme = it },
+                    themePreset = themePreset,
+                    onThemePresetChange = {
+                        themePreset = it
+                        prefs.edit().putString(ThemePrefs.PRESET, it.key).apply()
+                    },
                     onBack = { finish() },
                     onClearCache = { clearWebViewCache() },
                     onClearData = { clearAllData() }
                 )
+                AppLockOverlay()
             }
         }
     }
@@ -164,6 +178,8 @@ fun SettingsScreen(
     onMaterialYouChange: (Boolean) -> Unit,
     amoledThemeState: Boolean,
     onAmoledThemeChange: (Boolean) -> Unit,
+    themePreset: ThemePreset = ThemePreset.DEFAULT,
+    onThemePresetChange: (ThemePreset) -> Unit = {},
     onBack: () -> Unit,
     onClearCache: () -> Unit,
     onClearData: () -> Unit
@@ -185,6 +201,19 @@ fun SettingsScreen(
     var showAutoPlayDialog by remember { mutableStateOf(false) }
     var showGuiModeDialog by remember { mutableStateOf(false) }
     var showCustomCssDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
+    var webAccent by remember { mutableStateOf(ThemePrefs.webAccent(prefs)) }
+    var webTint by remember { mutableStateOf(ThemePrefs.webTint(prefs)) }
+    var pinEnabled by remember { mutableStateOf(AppLock.isPinSet()) }
+    var lockTimeout by remember { mutableStateOf(AppLock.lockTimeoutMs()) }
+    var captureAllowed by remember { mutableStateOf(AppLock.isScreenCaptureAllowed()) }
+    var securityFlow by remember { mutableStateOf(SecurityFlow.NONE) }
+    val activity = LocalContext.current as? android.app.Activity
+    fun setCapture(allowed: Boolean) {
+        AppLock.setScreenCaptureAllowed(allowed)
+        captureAllowed = allowed
+        activity?.window?.let(AppLock::applyScreenCapturePolicy)
+    }
 
     Scaffold(
         topBar = {
@@ -319,6 +348,41 @@ fun SettingsScreen(
                     else -> "Mobile CSS + JS"
                 }
                 SettingTile(
+                    title = "Theme",
+                    subtitle = if (materialYou) "${themePreset.label} (Material You is on)" else themePreset.label,
+                    icon = Icons.Default.ColorLens,
+                    onClick = { showThemeDialog = true }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingSwitchTile(
+                    title = "Theme the Spotify player",
+                    subtitle = "Recolour Spotify's green buttons and highlights",
+                    icon = Icons.Default.Brush,
+                    checked = webAccent,
+                    onCheckedChange = { enabled ->
+                        webAccent = enabled
+                        prefs.edit().putBoolean(ThemePrefs.WEB_ACCENT, enabled).apply()
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingSwitchTile(
+                    title = "Tinted backgrounds",
+                    subtitle = if (amoledTheme) "Off while AMOLED is on" else "Blend the theme colour into the player's backgrounds",
+                    icon = Icons.Default.FormatColorFill,
+                    checked = webTint,
+                    onCheckedChange = { enabled ->
+                        webTint = enabled
+                        prefs.edit().putBoolean(ThemePrefs.WEB_TINT, enabled).apply()
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
+                SettingTile(
                     title = "GUI Hack Mode",
                     subtitle = guiLabel,
                     icon = Icons.Default.Palette,
@@ -358,6 +422,53 @@ fun SettingsScreen(
                         amoledTheme = enabled
                         onAmoledThemeChange(enabled)
                         prefs.edit().putBoolean("AmoledTheme", enabled).apply()
+                    }
+                )
+            }
+
+            SettingSectionCard(
+                title = "PRIVACY & LOCK",
+                icon = Icons.Default.Lock
+            ) {
+                SettingSwitchTile(
+                    title = "App PIN lock",
+                    subtitle = if (pinEnabled) "PIN required to open ReSpotifuck" else "Off",
+                    icon = Icons.Default.Lock,
+                    checked = pinEnabled,
+                    onCheckedChange = { enable ->
+                        securityFlow = if (enable) SecurityFlow.SET_PIN else SecurityFlow.REMOVE_PIN
+                    }
+                )
+                if (pinEnabled) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                    SettingTile(
+                        title = "Change PIN",
+                        subtitle = "Requires your current PIN",
+                        icon = Icons.Default.Password,
+                        onClick = { securityFlow = SecurityFlow.CHANGE_VERIFY }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                    SettingTile(
+                        title = "Lock after leaving the app",
+                        subtitle = AppLock.timeoutOptions.firstOrNull { it.first == lockTimeout }?.second
+                            ?: "Immediately",
+                        icon = Icons.Default.Timer,
+                        onClick = {
+                            val options = AppLock.timeoutOptions
+                            val next = options[(options.indexOfFirst { it.first == lockTimeout } + 1) % options.size].first
+                            AppLock.setLockTimeoutMs(next)
+                            lockTimeout = next
+                        }
+                    )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                SettingSwitchTile(
+                    title = "Allow screen capture",
+                    subtitle = if (captureAllowed) "Screenshots and recording allowed" else "Blocked (recommended)",
+                    icon = Icons.Default.Screenshot,
+                    checked = captureAllowed,
+                    onCheckedChange = { allow ->
+                        if (allow) securityFlow = SecurityFlow.CAPTURE_PUZZLE else setCapture(false)
                     }
                 )
             }
@@ -453,7 +564,7 @@ fun SettingsScreen(
                                     checkedVersion = uc.latestVersion()
                                     Toast.makeText(
                                         updateContext,
-                                        if (available) "An update is available" else "Spotif*ck is up to date",
+                                        if (available) "An update is available" else "ReSpotifuck is up to date",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -464,7 +575,7 @@ fun SettingsScreen(
 
                 if (hasUpdate) {
                     SettingTile(
-                        title = "Download Spotif*ck ${uc.latestVersion() ?: "update"}",
+                        title = "Download ReSpotifuck ${uc.latestVersion() ?: "update"}",
                         subtitle = "Open the signed APK from GitHub",
                         icon = Icons.AutoMirrored.Filled.OpenInNew,
                         onClick = {
@@ -535,7 +646,7 @@ fun SettingsScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
 
                 SettingTile(
-                    title = "Spotif*ck Version",
+                    title = "ReSpotifuck Version",
                     subtitle = "v$appVersionName",
                     icon = Icons.Default.Smartphone,
                     onClick = null
@@ -565,6 +676,33 @@ fun SettingsScreen(
         }
     }
 
+    when (securityFlow) {
+        SecurityFlow.NONE -> Unit
+        SecurityFlow.SET_PIN, SecurityFlow.CHANGE_SET -> PinSetupFlow(
+            onDone = { pinEnabled = true; securityFlow = SecurityFlow.NONE },
+            onCancel = { securityFlow = SecurityFlow.NONE }
+        )
+        SecurityFlow.CHANGE_VERIFY -> PinVerifyFlow(
+            title = "Change PIN",
+            onVerified = { securityFlow = SecurityFlow.CHANGE_SET },
+            onCancel = { securityFlow = SecurityFlow.NONE }
+        )
+        SecurityFlow.REMOVE_PIN -> PinVerifyFlow(
+            title = "Turn off PIN lock",
+            onVerified = {
+                AppLock.removePin()
+                AppLock.setPromptState(AppLock.PROMPT_DECLINED)
+                pinEnabled = false
+                securityFlow = SecurityFlow.NONE
+            },
+            onCancel = { securityFlow = SecurityFlow.NONE }
+        )
+        SecurityFlow.CAPTURE_PUZZLE -> CapturePuzzle(
+            onSolved = { setCapture(true); securityFlow = SecurityFlow.NONE },
+            onCancel = { securityFlow = SecurityFlow.NONE }
+        )
+    }
+
     if (showPrivacyNotice) {
         AlertDialog(
             onDismissRequest = { showPrivacyNotice = false },
@@ -576,7 +714,7 @@ fun SettingsScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Spotif*ck is an independent community fork and is not affiliated with or endorsed by Spotify.")
+                    Text("ReSpotifuck is an independent community fork and is not affiliated with or endorsed by Spotify.")
                     Text("Third-party services may receive account, playback, and device data under their own terms and privacy policies.")
                     Text("Ad filtering and player controls modify web-player requests and behavior. Features may stop working or conflict with service terms. They do not grant rights to copy or redistribute music. Follow applicable service terms, copyright laws, and DMCA requirements.")
                     Text("The app's local proxy can decrypt and modify HTTPS traffic routed through its WebView when its CA certificate is installed. Remove that certificate from Android Settings > Security > Encryption & credentials > User credentials if you stop using the app.")
@@ -603,6 +741,14 @@ fun SettingsScreen(
                 prefs.edit().putString("APlayMode", value).apply()
             },
             onDismiss = { showAutoPlayDialog = false }
+        )
+    }
+
+    if (showThemeDialog) {
+        ThemePresetDialog(
+            selected = themePreset,
+            onSelect = onThemePresetChange,
+            onDismiss = { showThemeDialog = false }
         )
     }
 
@@ -846,6 +992,69 @@ fun SettingSwitchTile(
 }
 
 @Composable
+fun ThemePresetDialog(
+    selected: ThemePreset,
+    onSelect: (ThemePreset) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        title = { Text("Theme", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                ThemePreset.entries.forEach { preset ->
+                    val isSelected = preset == selected
+                    val accent = Color(preset.accent)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(preset.surface))
+                            .border(
+                                if (isSelected) 2.dp else 1.dp,
+                                if (isSelected) accent else Color.White.copy(alpha = 0.08f),
+                                RoundedCornerShape(16.dp)
+                            )
+                            .clickable { onSelect(preset) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color(preset.background), CircleShape)
+                                .border(2.dp, accent, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(Modifier.size(16.dp).background(accent, CircleShape))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            preset.label,
+                            modifier = Modifier.weight(1f),
+                            color = if (isSelected) accent else Color.White,
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        )
+                        if (preset == ThemePreset.DEFAULT) {
+                            Text("Default", color = Color.White.copy(alpha = 0.5f), style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done", color = MaterialTheme.colorScheme.primary) }
+        }
+    )
+}
+
+@Composable
 fun SingleChoiceDialog(
     title: String,
     options: List<Pair<String, String>>,
@@ -1050,3 +1259,5 @@ fun SettingsScreenPreview() {
         )
     }
 }
+
+private enum class SecurityFlow { NONE, SET_PIN, CHANGE_VERIFY, CHANGE_SET, REMOVE_PIN, CAPTURE_PUZZLE }

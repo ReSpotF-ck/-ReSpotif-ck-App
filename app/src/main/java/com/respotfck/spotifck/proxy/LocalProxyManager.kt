@@ -19,6 +19,7 @@ import org.bouncycastle.asn1.x509.GeneralNames
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
+import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
@@ -61,7 +62,9 @@ object LocalProxyManager {
     @Volatile private var caKeyPair: KeyPair? = null
     @Volatile private var caCert: X509Certificate? = null
 	@Volatile private var leafKeyPair: KeyPair? = null
-    private val threadPool = Executors.newFixedThreadPool(32)
+    // Each CONNECT tunnel occupies a worker for its whole keep-alive lifetime, so a fixed-size
+    // pool makes new tunnels queue behind idle ones and stalls page/image loads.
+    private val threadPool = Executors.newCachedThreadPool()
 
     private val sslContextCache = Collections.synchronizedMap(HashMap<String, SSLContext>())
 
@@ -163,7 +166,7 @@ object LocalProxyManager {
         kpg.initialize(2048, SecureRandom())
         caKeyPair = kpg.generateKeyPair()
 
-        val name = X500Name("CN=Spotifck Proxy CA, O=Spotifck")
+        val name = X500Name("CN=ReSpotifuck Proxy CA, O=ReSpotifuck")
         val serial = BigInteger.valueOf(System.currentTimeMillis())
         val notBefore = Date()
         val notAfter = Date(notBefore.time + 365L * 24 * 60 * 60 * 1000L * 10)
@@ -206,19 +209,21 @@ object LocalProxyManager {
 
     fun start() {
         if (serverSocket != null) return
+        // Bind synchronously so callers can use isRunning/port immediately without sleeping.
+        val server = try {
+            ServerSocket(0, 128, java.net.InetAddress.getByName("127.0.0.1"))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start proxy", e)
+            return
+        }
+        serverSocket = server
+        Log.d(TAG, "Proxy started on port ${server.localPort}")
         threadPool.execute {
-            try {
-                serverSocket = ServerSocket(0, 128, java.net.InetAddress.getByName("127.0.0.1"))
-                Log.d(TAG, "Proxy started on port ${serverSocket!!.localPort}")
-
-                while (!serverSocket!!.isClosed) {
-                    try {
-                        val client = serverSocket!!.accept()
-                        threadPool.execute { handleConnection(client) }
-                    } catch (_: Exception) {}
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start proxy", e)
+            while (!server.isClosed) {
+                try {
+                    val client = server.accept()
+                    threadPool.execute { handleConnection(client) }
+                } catch (_: Exception) {}
             }
         }
     }
@@ -305,6 +310,7 @@ object LocalProxyManager {
         }
 
         socket.soTimeout = 30000
+        socket.tcpNoDelay = true
         socket.startHandshake()
 
         val hostnameVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
@@ -318,6 +324,7 @@ object LocalProxyManager {
 
     private fun handleConnection(client: Socket) {
         client.soTimeout = 30000
+        client.tcpNoDelay = true
         try {
             val requestLine = readLine(client.inputStream) ?: return
 
@@ -385,13 +392,20 @@ object LocalProxyManager {
                 Log.d(TAG, "Reusing pooled upstream connection for $host")
                 borrowed
             } else {
-                openUpstreamSocket(host, targetPort, useHttp2)
+                try {
+                    openUpstreamSocket(host, targetPort, useHttp2)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Upstream connect to $host:$targetPort failed: ${e.message}")
+                    reuseUpstream = false
+                    writeBadGateway(clientSocket.outputStream, host)
+                    return
+                }
             }
             upstreamSSLSocket = upstream
 
-            val clientIn = clientSocket.inputStream
+            val clientIn = BufferedInputStream(clientSocket.inputStream, STREAM_BUFFER_BYTES)
             val clientOut = clientSocket.outputStream
-            var upstreamIn = upstream.inputStream
+            var upstreamIn = BufferedInputStream(upstream.inputStream, STREAM_BUFFER_BYTES)
             var upstreamOut = upstream.outputStream
 
             if (useHttp2) {
@@ -414,7 +428,7 @@ object LocalProxyManager {
                         upstream = openUpstreamSocket(host, targetPort, useHttp2)
                         upstreamSSLSocket = upstream
                         fromPool = false
-                        upstreamIn = upstream.inputStream
+                        upstreamIn = BufferedInputStream(upstream.inputStream, STREAM_BUFFER_BYTES)
                         upstreamOut = upstream.outputStream
                         writeHead(reqHead, upstreamOut)
                     }
@@ -458,7 +472,7 @@ object LocalProxyManager {
                     val keepAlive = !reqConnection.equals("close", ignoreCase = true) &&
                         !respConnection.equals("close", ignoreCase = true)
 
-                    reuseUpstream = keepAlive
+                    reuseUpstream = keepAlive && upstreamIn.available() == 0
                     if (!keepAlive) break
                 }
             }
@@ -469,6 +483,20 @@ object LocalProxyManager {
             try { clientSSLSocket?.close() } catch (_: Exception) {}
             upstreamSSLSocket?.let { releaseUpstreamSocket(host, targetPort, it, reuseUpstream) }
         }
+    }
+
+    private const val STREAM_BUFFER_BYTES = 16 * 1024
+
+    /** Tell the client why the tunnel failed instead of closing it with an empty reply. */
+    private fun writeBadGateway(out: java.io.OutputStream, host: String) {
+        val body = "ReSpotifuck proxy could not reach $host"
+        try {
+            out.write(
+                ("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain; charset=utf-8\r\n" +
+                    "Content-Length: ${body.toByteArray().size}\r\nConnection: close\r\n\r\n$body").toByteArray()
+            )
+            out.flush()
+        } catch (_: Exception) {}
     }
 
     private data class HttpHead(
@@ -656,7 +684,7 @@ object LocalProxyManager {
         }
         val domainKeyPair = leafKeyPair!!
 
-        val issuer = X500Name("CN=Spotifck Proxy CA, O=Spotifck")
+        val issuer = X500Name("CN=ReSpotifuck Proxy CA, O=ReSpotifuck")
         val subject = X500Name("CN=$domain")
         val serial = BigInteger.valueOf(System.currentTimeMillis())
         val notBefore = Date()
@@ -737,6 +765,10 @@ object LocalProxyManager {
     }
 
     fun isCAInstalled(): Boolean {
+        if (isCAInUserTrustStore()) {
+            Log.d(TAG, "CA is installed (found in AndroidCAStore)")
+            return true
+        }
         if (!isRunning) return false
 
         return try {
@@ -786,6 +818,18 @@ object LocalProxyManager {
         }
     }
 
+    // Local trust-store lookup; avoids a network round trip through the proxy on every launch.
+    private fun isCAInUserTrustStore(): Boolean {
+        val cert = caCert ?: return false
+        return try {
+            val store = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
+            store.getCertificateAlias(cert) != null
+        } catch (e: Exception) {
+            Log.w(TAG, "AndroidCAStore lookup failed", e)
+            false
+        }
+    }
+
     private fun getPEMContent(): String {
         val base64 = Base64.encodeToString(caCert!!.encoded, Base64.DEFAULT or Base64.NO_WRAP)
         return "-----BEGIN CERTIFICATE-----\n$base64\n-----END CERTIFICATE-----\n"
@@ -797,7 +841,7 @@ object LocalProxyManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver
             val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, "Spotifck_CA.pem")
+                put(MediaStore.Downloads.DISPLAY_NAME, "ReSpotifuck_CA.pem")
                 put(MediaStore.Downloads.MIME_TYPE, "application/x-pem-file")
                 put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
                 put(MediaStore.Downloads.IS_PENDING, 1)
@@ -812,12 +856,12 @@ object LocalProxyManager {
                 }
                 resolver.update(uri, clearPending, null, null)
                 Log.d(TAG, "CA exported to Downloads via MediaStore")
-                return "/sdcard/Download/Spotifck_CA.pem"
+                return "/sdcard/Download/ReSpotifuck_CA.pem"
             }
         } else {
             @Suppress("DEPRECATION")
             val file = File(Environment.getExternalStoragePublicDirectory(
-                Environment.DIRECTORY_DOWNLOADS), "Spotifck_CA.pem")
+                Environment.DIRECTORY_DOWNLOADS), "ReSpotifuck_CA.pem")
             file.writeText(pem)
             Log.d(TAG, "CA exported to ${file.absolutePath}")
             return file.absolutePath
@@ -832,7 +876,7 @@ object LocalProxyManager {
     fun installCACert(activity: Activity) {
         try {
             val intent = KeyChain.createInstallIntent()
-            intent.putExtra(KeyChain.EXTRA_NAME, "SpotifckMITM")
+            intent.putExtra(KeyChain.EXTRA_NAME, "ReSpotifuckCA")
             intent.putExtra(KeyChain.EXTRA_CERTIFICATE, caCert!!.encoded)
             activity.startActivity(intent)
         } catch (e: Exception) {

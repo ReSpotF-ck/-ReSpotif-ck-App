@@ -29,8 +29,8 @@ android {
         applicationId = "com.respotfck.spotifck"
         minSdk = 28
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.0.7"
+        versionCode = 7
+        versionName = "1.0.8"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
@@ -55,6 +55,11 @@ android {
     // Keep development APKs on the standard debug certificate. Use the
     // private release certificate only for distributable release builds.
     buildTypes {
+        // Separate package so a debug/test build installs next to the release app.
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("sharedKey")
@@ -73,6 +78,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+// APKs are named ReSpotifuck-<version>-<buildType>.apk
+base {
+    archivesName = "ReSpotifuck-${android.defaultConfig.versionName}"
 }
 
 dependencies {
