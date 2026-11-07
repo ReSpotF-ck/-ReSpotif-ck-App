@@ -1,5 +1,6 @@
 package com.respotfck.spotifck.ui
 
+import com.respotfck.spotifck.security.MemberAuth
 import android.app.ActivityOptions
 import android.content.Intent
 import android.os.Bundle
@@ -104,8 +105,8 @@ class CertificateActivity : ComponentActivity() {
                 }
             }
 
-            LaunchedEffect(certInstalled, checkDone, introDone, pinStage) {
-                if (checkDone && certInstalled && introDone && pinStage == PIN_NONE) {
+            LaunchedEffect(certInstalled, checkDone, introDone, pinStage, MemberAuth.signedIn.value) {
+                if (checkDone && certInstalled && introDone && pinStage == PIN_NONE && MemberAuth.signedIn.value) {
                     val fade = ActivityOptions.makeCustomAnimation(
                         this@CertificateActivity, android.R.anim.fade_in, android.R.anim.fade_out
                     )
@@ -131,6 +132,9 @@ class CertificateActivity : ComponentActivity() {
                         },
                         onExit = { finish() }
                     )
+                } else if (!MemberAuth.signedIn.value) {
+                    LaunchSplash(status = null)
+                    MemberGateOverlay()
                 } else if (pinStage == PIN_PROMPT) {
                     LaunchSplash(status = null)
                     PinPromptDialog(

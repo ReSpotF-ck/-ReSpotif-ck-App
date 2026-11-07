@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Web
 import androidx.compose.material.icons.filled.Gavel
+import androidx.compose.material.icons.filled.Key
 import com.respotfck.spotifck.webview.WebEngine
 import android.content.Context
 import android.content.Intent
@@ -188,6 +189,7 @@ class SettingsActivity : ComponentActivity() {
                     onClearCache = { clearWebViewCache() },
                     onClearData = { clearAllData() }
                 )
+                MemberGateOverlay()
                 AppLockOverlay()
             }
         }
@@ -1021,10 +1023,10 @@ fun SettingsScreen(
                 SettingTile(
                     title = if (checkingForUpdates) "Checking for Updates…" else "Check for Updates",
                     subtitle = when {
-                        checkingForUpdates -> "Checking GitHub Releases and release-assets"
+                        checkingForUpdates -> "Checking the ReSpotifuck site and GitHub"
                         hasUpdate -> "Version ${checkedVersion ?: "new"} is available"
                         checkedVersion != null -> "Up to date · latest v$checkedVersion"
-                        else -> "Check GitHub Releases and release-assets"
+                        else -> "Check the ReSpotifuck site and GitHub"
                     },
                     icon = Icons.Default.SystemUpdate,
                     showBadge = hasUpdate,
@@ -1052,17 +1054,19 @@ fun SettingsScreen(
                 if (hasUpdate) {
                     SettingTile(
                         title = "Download ReSpotifuck ${uc.latestVersion() ?: "update"}",
-                        subtitle = "Open the signed APK from GitHub",
+                        subtitle = "Download the signed APK (members only)",
                         icon = Icons.AutoMirrored.Filled.OpenInNew,
                         onClick = {
                             val target = uc.downloadUrl() ?: uc.releaseUrl()
                             if (target.isNullOrBlank()) {
                                 Toast.makeText(updateContext, "No download link is available yet", Toast.LENGTH_SHORT).show()
                             } else {
-                                runCatching {
-                                    updateContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
-                                }.onFailure {
-                                    Toast.makeText(updateContext, "Could not open the download link", Toast.LENGTH_SHORT).show()
+                                uc.resolveDownload(target) { url ->
+                                    runCatching {
+                                        updateContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                    }.onFailure {
+                                        Toast.makeText(updateContext, "Could not open the download link", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
                         }
@@ -1083,6 +1087,16 @@ fun SettingsScreen(
                 title = "ABOUT",
                 icon = Icons.Default.Info
             ) {
+                val member = com.respotfck.spotifck.security.MemberAuth.memberName.value
+                SettingTile(
+                    title = "Member: ${member ?: "not signed in"}",
+                    subtitle = "Tap to log out of your member code on this phone",
+                    icon = Icons.Default.Key,
+                    onClick = { com.respotfck.spotifck.security.MemberAuth.signOut() }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+
                 SettingTile(
                     title = "We don't exist",
                     subtitle = "And we'd like to keep it that way. Please keep discussions private and only share ReSpotifuck with people you trust.",

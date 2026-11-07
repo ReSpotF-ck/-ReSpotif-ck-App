@@ -10,6 +10,7 @@ class ReSpotifuckApp : Application() {
     override fun onCreate() {
         super.onCreate()
         AppLock.install(this)
+        com.respotfck.spotifck.security.MemberAuth.install(this)
         AppIdentity.load(this)
         val prefs = getSharedPreferences("spotilol_prefs", MODE_PRIVATE)
         DohResolver.configure(prefs)
