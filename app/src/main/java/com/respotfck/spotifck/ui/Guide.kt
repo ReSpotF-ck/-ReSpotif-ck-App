@@ -25,7 +25,7 @@ private val guideSteps = listOf(
     "PIN & privacy" to "You can set a PIN so nobody else can open the app. Screenshots are blocked unless you allow them in Settings.",
     "Make it yours" to "Settings › Appearance has themes, app icons and names. Settings › Tweaks can hide podcasts, upsells and Canvas videos.",
     "Keep it private" to "We don't exist, and we'd like to keep it that way. Please keep discussions about ReSpotifuck private and only share it with people you trust. Don't post download links publicly.",
-    "Rules" to "Settings › About › Rules lists them. In short: we don't exist, keep it private, don't resell or re-upload, only download from the official site or GitHub, use your own Spotify account.",
+    "Rules" to "Settings › About › Rules lists them. In short: you must be 18+, we don't exist, keep it private, don't resell or re-upload, only download from the official site or GitHub, use your own Spotify account.",
     "If something breaks" to "Settings › System › Empty Cache fixes most loading problems. If the player keeps failing, the app switches to a backup web engine by itself. Settings › About has links to get help."
 )
 

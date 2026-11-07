@@ -2067,6 +2067,7 @@ private val compareApps = listOf(
 
 private val appRules = listOf(
     "We don't exist. Keep it that way.",
+    "You must be 18 or older. Some content and language may not be suitable for younger audiences.",
     "Don't post download links, the website or the repos publicly. Share only with people you trust.",
     "Don't sell, re-upload or rebrand the app as your own.",
     "Only download from respotfck.netlify.app or the official GitHub. Never trust APKs from anywhere else.",
