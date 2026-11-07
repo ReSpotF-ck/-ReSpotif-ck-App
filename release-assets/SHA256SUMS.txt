@@ -1,0 +1,2 @@
+a99e1279cf952ab5e924c8680a6fa912d00994fc3d966c8ce0a10e4591a2e85c  ReSpotifuck-1.0.10-release.apk
+376cd4bba02c677e5d96f8beb901e0d549eda6e1848255bf7661f5fe7df3f634  ReSpotifuck-1.0.10-debug.apk
