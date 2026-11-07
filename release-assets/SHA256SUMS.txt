@@ -1,2 +1,2 @@
-c64dad67075f0b697ef867fcaabdc879d42405fde3b0778adce5a0b0cb7fdacd  ReSpotifuck-1.0.8-release.apk
-d3030cff4bb62185e3c750697ef4e6b21299714ac0f75be99b7af102a1ebdb11  ReSpotifuck-1.0.8-debug.apk
+90b27d89597d795358f81d1f602589b352636aa8cacb05efbc84237d289e624c  ReSpotifuck-1.0.8-release.apk
+81416e8768f0e7379e8768529964a41f84eba710eb5b1d51aad7b59002b88e45  ReSpotifuck-1.0.8-debug.apk
